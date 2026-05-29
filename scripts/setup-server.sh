@@ -134,10 +134,10 @@ echo "[4/5] Starting MySQL..."
 if [[ -S "$SOCKET" ]]; then
   echo "  Already running."
 else
-  taskset -c "$MYSQLD_CORES" "$MYSQLD" \
+  nohup taskset -c "$MYSQLD_CORES" "$MYSQLD" \
     --defaults-file="$INSTALL_DIR/etc/my.cnf" \
     --user="$(whoami)" \
-    --daemonize
+    >> "$INSTALL_DIR/logs/mysqld.log" 2>&1 &
 
   echo -n "  Waiting for socket"
   for i in $(seq 1 30); do
