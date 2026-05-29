@@ -132,21 +132,22 @@ mysql_set() {
 }
 
 run_sysbench() {
-  local threads="$1" time="$2"
+  local threads="$1" time="$2" outfile="$3"
   taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
     --mysql-socket="$SOCKET" \
     --mysql-user=root \
+    --mysql-db=sbtest \
     --tables="$TABLES" \
     --table-size="$TABLE_SIZE" \
     --threads="$threads" \
     --time="$time" \
-    run 2>/dev/null
+    run > "$outfile" 2>&1
 }
 
-# TPS と latency を抽出する関数
-parse_tps()     { grep "transactions:" | grep -oP '\d+\.\d+ per sec' | grep -oP '[\d.]+' | head -1; }
-parse_lat_avg() { grep "avg:" | grep -oP '[\d.]+' | head -1; }
-parse_lat_p95() { grep "95th percentile:" | grep -oP '[\d.]+' | head -1; }
+# bench.sh と同一の awk ベース抽出（perl regex 非依存）
+extract_tps()     { awk '/transactions:/{for(i=1;i<=NF;i++){if($i~/^\([0-9.]+$/){gsub(/[^0-9.]/,"",$i);print $i;exit}}}' "$1"; }
+extract_lat_avg() { awk '/Latency \(ms\):/{flag=1;next} flag&&$1=="avg:"  {print $2;exit}' "$1"; }
+extract_lat_p95() { awk '/Latency \(ms\):/{flag=1;next} flag&&$1=="95th"  {print $3;exit}' "$1"; }
 
 IFS=',' read -ra MULTIPLIER_LIST <<< "$MULTIPLIERS"
 IFS=',' read -ra THREAD_LIST    <<< "$THREADS"
@@ -181,9 +182,9 @@ for THREAD in "${THREAD_LIST[@]}"; do
     echo "[prepare] sysbench prepare (tables=$TABLES, size=$TABLE_SIZE)..."
     mysql_set "CREATE DATABASE IF NOT EXISTS sbtest;"
     taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
-      --mysql-socket="$SOCKET" --mysql-user=root \
+      --mysql-socket="$SOCKET" --mysql-user=root --mysql-db=sbtest \
       --tables="$TABLES" --table-size="$TABLE_SIZE" \
-      --threads="$THREAD" prepare 2>/dev/null
+      --threads="$THREAD" prepare
   fi
 
   # --- 初回 warmup（スレッド数変更後のバッファプール温め）---
@@ -191,7 +192,7 @@ for THREAD in "${THREAD_LIST[@]}"; do
   mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
              SET GLOBAL innodb_spin_wait_delay=6;
              SET GLOBAL innodb_sync_spin_loops=30;"
-  run_sysbench "$THREAD" "$WARMUP_TIME" > /dev/null
+  run_sysbench "$THREAD" "$WARMUP_TIME" /dev/null
 
   # --- ラウンドロビン: round × multiplier ---
   for ((ROUND=1; ROUND<=RUNS; ROUND++)); do
@@ -207,13 +208,18 @@ for THREAD in "${THREAD_LIST[@]}"; do
       ACTUAL_M=$(mysql_set "SELECT @@innodb_spin_wait_pause_multiplier;")
       echo -n "  m=$ACTUAL_M threads=$THREAD ... "
 
-      # 本番 run（生データを保存: bench.sh に倣い run<N>.txt 形式）
+      # 本番 run（生データを保存）
       RAW_FILE="$RAW_DIR/t${THREAD}_m${ACTUAL_M}_r${ROUND}.txt"
-      run_sysbench "$THREAD" "$TIME" > "$RAW_FILE" 2>&1
+      run_sysbench "$THREAD" "$TIME" "$RAW_FILE"
 
-      TPS=$(parse_tps     < "$RAW_FILE")
-      LAT_AVG=$(parse_lat_avg < "$RAW_FILE")
-      LAT_P95=$(parse_lat_p95 < "$RAW_FILE")
+      TPS=$(extract_tps     "$RAW_FILE")
+      LAT_AVG=$(extract_lat_avg "$RAW_FILE")
+      LAT_P95=$(extract_lat_p95 "$RAW_FILE")
+
+      if [[ -z "$TPS" || -z "$LAT_AVG" ]]; then
+        echo "ERROR: メトリクス抽出失敗。確認: $RAW_FILE" >&2
+        exit 1
+      fi
 
       printf "TPS=%-8s lat_avg=%-6s lat_p95=%s\n" "$TPS" "${LAT_AVG}ms" "${LAT_P95}ms"
 
@@ -232,9 +238,14 @@ mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
 
 # --- summary.txt 生成（bench.sh フォーマットに準拠）-----------------------
 {
+  local SRC_COMMIT PATCH_FILE
+  SRC_COMMIT="$(grep '^src_commit' "$INSTALL_DIR/BUILD-INFO.txt" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo unknown)"
+  PATCH_FILE="$(grep '^patch_file' "$INSTALL_DIR/BUILD-INFO.txt" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo unknown)"
   echo "# server          : $SERVER"
   echo "# variant         : $VARIANT"
   echo "# date            : $(date -Iseconds)"
+  echo "# src_commit      : $SRC_COMMIT"
+  echo "# patch_file      : $PATCH_FILE"
   echo "# multipliers     : $MULTIPLIERS"
   echo "# threads         : $THREADS"
   echo "# rounds          : $RUNS"
