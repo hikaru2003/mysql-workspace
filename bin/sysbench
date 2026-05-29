@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # sysbench ラッパー
 # bin/sysbench.bin の実行に必要な libmysqlclient を lib/ から解決する。
-# バイナリのコンパイル時パス（/usr/local/share/sysbench/）が存在しない環境では
-# share/sysbench/ 内の Lua ファイルをスクリプト名から自動解決して渡す。
+# share/ 以下に Lua スクリプトを同梱し、CWD を share/ にして exec することで
+# require('oltp_common') 等がコンパイル時パスに依存せず解決される。
 WORKSPACE="$(cd "$(dirname "$0")/.." && pwd)"
 export LD_LIBRARY_PATH="$WORKSPACE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
@@ -16,4 +16,5 @@ for arg in "$@"; do
   fi
 done
 
+cd "$WORKSPACE/share"
 exec "$WORKSPACE/bin/sysbench.bin" "${args[@]}"
