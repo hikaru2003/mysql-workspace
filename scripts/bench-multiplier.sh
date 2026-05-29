@@ -17,8 +17,9 @@
 #     raw/t<T>_m<M>_r<R>.txt  sysbench 生出力（threads=T, multiplier=M, round=R）
 #
 # オプション:
+#   --server       NAME     サーバ識別名（必須。結果ディレクトリ名に使用）
 #   --multipliers  <list>   カンマ区切り multiplier 値
-#                           （デフォルト: 0,10,25,50,75,100,200,500）
+#                           （デフォルト: 0,5,10,25,50,75,100,150,200,300,500）
 #   --threads      <list>   カンマ区切りスレッド数（デフォルト: 4,8,16,32,64）
 #   --mysqld-cores <range>  mysqld の taskset コア指定（デフォルト: 0-15）
 #   --sysbench-cores <range> sysbench の taskset コア指定（デフォルト: 16-19）
@@ -28,11 +29,12 @@
 #   --tables       N        sysbench テーブル数（デフォルト: 8）
 #   --table-size   N        sysbench テーブル行数（デフォルト: 100000）
 #   --result-dir   DIR      結果保存先ルートディレクトリ
-#                           （デフォルト: experiments/results/<variant>/<hostname>/multiplier_experiment）
+#                           （デフォルト: experiments/results/<variant>/<server>/multiplier_experiment）
 #
 # 使用例:
 #   scripts/bench-multiplier.sh large-multiplier \
-#     --multipliers 0,10,25,50,75,100,200,500 \
+#     --server skylake01 \
+#     --multipliers 0,5,10,25,50,75,100,150,200,300,500 \
 #     --threads 4,8,16,32,64 \
 #     --mysqld-cores 0-15 --sysbench-cores 16-19 \
 #     --runs 5 --time 60
@@ -47,7 +49,7 @@ VARIANT="${1:-}"
 [[ -z "$VARIANT" ]] && { echo "Usage: $0 <variant> [options]"; exit 1; }
 shift
 
-MULTIPLIERS="0,10,25,50,75,100,200,500"
+MULTIPLIERS="0,5,10,25,50,75,100,150,200,300,500"
 THREADS="4,8,16,32,64"
 MYSQLD_CORES="0-15"
 SYSBENCH_CORES="16-19"
@@ -56,6 +58,7 @@ TIME=60
 WARMUP_TIME=30
 TABLES=8
 TABLE_SIZE=100000
+SERVER=""
 RESULT_DIR=""
 
 while [[ $# -gt 0 ]]; do
@@ -69,16 +72,18 @@ while [[ $# -gt 0 ]]; do
     --warmup-time)    WARMUP_TIME="$2";    shift 2 ;;
     --tables)         TABLES="$2";         shift 2 ;;
     --table-size)     TABLE_SIZE="$2";     shift 2 ;;
+    --server)         SERVER="$2";         shift 2 ;;
     --result-dir)     RESULT_DIR="$2";     shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
+[[ -z "$SERVER" ]] && { echo "ERROR: --server NAME を指定してください（例: --server skylake01）"; exit 1; }
+
 INSTALL_DIR="$WORKSPACE/installs/$VARIANT"
 SOCKET="$INSTALL_DIR/run/mysqld.sock"
 MYSQL="$INSTALL_DIR/bin/mysql"
 SYSBENCH="${WORKSPACE}/bin/sysbench"
-SERVER=$(hostname -s)
 
 # sysbench バイナリ: ワークスペース同梱版を優先、なければ PATH から探す
 if [[ ! -x "$SYSBENCH" ]]; then
@@ -106,7 +111,7 @@ if [[ "$ACTUAL_MAX" -lt 10000 ]]; then
   echo "         パッチ適用済み variant が必要です（現在は $ACTUAL_MAX でクランプされます）。"
 fi
 
-# 結果ディレクトリ（サーバ名別）
+# 結果ディレクトリ
 if [[ -z "$RESULT_DIR" ]]; then
   RESULT_DIR="$WORKSPACE/experiments/results/$VARIANT/$SERVER/multiplier_experiment"
 fi
