@@ -75,35 +75,46 @@ echo "  port         : $PORT"
 echo "  mysqld cores : $MYSQLD_CORES"
 echo "================================================================"
 
-# --- 1. mysqld バイナリ確認 -------------------------------------------------
-[[ -x "$MYSQLD" ]] || {
-  echo "ERROR: mysqld not found: $MYSQLD"
-  echo "       installs/<variant>/ をワークスペースごと転送したか確認してください。"
-  exit 1
-}
-
-# --- 2. ランタイム依存パッケージのインストール --------------------------------
+# --- 1. ランタイム依存パッケージのインストール --------------------------------
 echo ""
 echo "[1/5] Installing runtime dependencies..."
-if command -v apt-get &>/dev/null; then
-  sudo apt-get install -y -q \
+if command -v apt &>/dev/null; then
+  # Ubuntu 24.04: libaio1 → libaio1t64、libssl3 → libssl3t64、libcurl4 → libcurl4t64
+  sudo apt install -y -q \
+    libaio1t64 \
+    libssl3t64 \
+    libnuma1 \
+    libcurl4t64 \
+    libtinfo6 \
+    git-lfs \
+    2>/dev/null || \
+  sudo apt install -y -q \
     libaio1 \
     libssl3 \
     libnuma1 \
     libcurl4 \
     libtinfo6 \
-    2>/dev/null || \
-  sudo apt-get install -y -q \
-    libaio1t64 \
-    libssl3 \
-    libnuma1 \
-    libcurl4 \
-    libtinfo6 \
+    git-lfs \
     2>/dev/null || true
   echo "  apt dependencies done."
 else
-  echo "  WARNING: apt-get not found. Skip package install (non-Debian OS?)."
+  echo "  WARNING: apt not found. Skip package install (non-Debian OS?)."
 fi
+
+# --- 2. Git LFS オブジェクト取得（clone 直後にLFSポインタのままの場合に対応）---
+if git -C "$WORKSPACE" rev-parse --is-inside-work-tree &>/dev/null; then
+  if git lfs version &>/dev/null 2>&1; then
+    echo "  Pulling Git LFS objects..."
+    git -C "$WORKSPACE" lfs pull 2>/dev/null || true
+  fi
+fi
+
+# --- mysqld バイナリ確認 ----------------------------------------------------
+[[ -x "$MYSQLD" ]] || {
+  echo "ERROR: mysqld not found or not executable: $MYSQLD"
+  echo "       git lfs pull を実行してLFSオブジェクトを取得してください。"
+  exit 1
+}
 
 # --- 3. sysbench バイナリ確認 -----------------------------------------------
 echo ""
