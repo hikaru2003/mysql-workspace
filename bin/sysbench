@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# sysbench ラッパー
+# bin/sysbench.bin の実行に必要な libmysqlclient を lib/ から解決する。
+# LD_LIBRARY_PATH を設定して実バイナリを呼ぶだけ。
+WORKSPACE="$(cd "$(dirname "$0")/.." && pwd)"
+export LD_LIBRARY_PATH="$WORKSPACE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$WORKSPACE/bin/sysbench.bin" "$@"

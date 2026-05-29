@@ -1,0 +1,4 @@
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	1457.23	29183.80	10.98	12.30	2.18	921.79	NA	2.38
+2	1455.77	29149.37	10.99	12.08	2.16	1154.37	NA	2.07
+3	1421.81	28467.43	11.25	12.30	2.07	1108.42	NA	1.90

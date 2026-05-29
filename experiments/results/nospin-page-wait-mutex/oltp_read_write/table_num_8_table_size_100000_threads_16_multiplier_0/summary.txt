@@ -1,0 +1,41 @@
+# variant         : nospin-page-wait-mutex
+# date            : 2026-05-19T10:37:51+09:00
+# workload        : oltp_read_write
+# scenario        : realistic
+# threads         : 16
+# tables          : 8
+# table_size      : 100000
+# multiplier      : 0
+# runs            : 10
+# time_per_run    : 60s
+# warmup_mode     : stable (pct=5%, max=10)
+# warmup_time     : 60s
+# warmup_threads  : (same as run: 16)
+# perf_schema     : no
+# remote_host     : gumma
+# mysql_host      : 192.168.23.70
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-page-wait-mutex.patch
+# sysbench_cpus   : 0-11 (on gumma)
+# mysqld_cpus     : 0-7
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	463.56	9271.14	34.46	164.45	4.21	2837.24	NA	0.00
+2	464.72	9294.37	34.43	179.94	4.19	2307.54	NA	0.00
+3	462.58	9251.65	34.14	186.54	4.28	2133.79	NA	0.00
+4	432.66	8653.14	36.98	200.47	4.33	1974.88	NA	0.00
+5	444.84	8896.87	35.86	223.34	4.29	1740.12	NA	0.00
+6	463.68	9273.57	34.21	167.44	4.24	2199.37	NA	0.00
+7	430.51	8610.16	37.16	223.34	4.34	2085.20	NA	0.00
+8	428.53	8570.60	37.24	215.44	4.34	2382.69	NA	0.00
+9	514.32	10286.46	30.89	139.85	4.34	1874.68	NA	0.00
+10	369.19	7383.76	43.33	308.84	4.29	2208.60	NA	0.00
+
+## Averages
+runs=10
+TPS_avg=447.4590
+QPS_avg=8949.1720
+Latency_avg_ms=35.8700
+Latency_p95_ms=200.9650
+Errors_per_sec=0.0000

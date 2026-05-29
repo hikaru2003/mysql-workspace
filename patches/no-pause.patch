@@ -1,0 +1,35 @@
+# experiment: no-pause
+# 概要:
+#   InnoDB の spinlock 待機ループで使われる UT_RELAX_CPU マクロから
+#   x86 PAUSE 命令を取り除き、no-op (memory barrier のみ) に置き換える。
+#
+# 目的:
+#   spin 中に PAUSE を出さなかった場合に、(a) 競合スレッドの進捗が
+#   どれくらい変わるか、(b) 消費電力 / IPC がどう変わるかを確かめる。
+#   ベースラインに対する差分実験。
+#
+# 影響範囲:
+#   storage/innobase/include/ut0ut.h の HAVE_PAUSE_INSTRUCTION 分岐のみ。
+#   HAVE_FAKE_PAUSE_INSTRUCTION 側には触らない。
+#
+# 適用方法:
+#   scripts/build.sh no-pause --patch no-pause.patch
+
+diff --git a/storage/innobase/include/ut0ut.h b/storage/innobase/include/ut0ut.h
+index 2cefe323521..4f31c20732d 100644
+--- a/storage/innobase/include/ut0ut.h
++++ b/storage/innobase/include/ut0ut.h
+@@ -86,11 +86,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
+
+ #ifndef UNIV_HOTBACKUP
+ #if defined(HAVE_PAUSE_INSTRUCTION)
+-/* According to the gcc info page, asm volatile means that the
+-instruction has important side-effects and must not be removed.
+-Also asm volatile may trigger a memory barrier (spilling all registers
+-to memory). */
+-#define UT_RELAX_CPU() __asm__ __volatile__("pause")
++/* PAUSE instruction disabled for spinlock experiment: no-op variant */
++#define UT_RELAX_CPU() __asm__ __volatile__("" ::: "memory")
+
+ #elif defined(HAVE_FAKE_PAUSE_INSTRUCTION)
+ #define UT_RELAX_CPU() __asm__ __volatile__("rep; nop")

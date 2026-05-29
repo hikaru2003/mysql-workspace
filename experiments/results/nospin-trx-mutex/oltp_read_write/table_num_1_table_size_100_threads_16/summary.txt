@@ -1,0 +1,29 @@
+# variant         : nospin-trx-mutex
+# date            : 2026-05-06T19:27:06+09:00
+# workload        : oltp_read_write
+# scenario        : high
+# threads         : 16
+# tables          : 1
+# table_size      : 100
+# multiplier      : (unchanged)
+# runs            : 3
+# time_per_run    : 60s
+# perf_schema     : yes
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-trx-mutex.patch
+# sysbench_cpus   : 6,7
+# mysqld_cpus     : 0-5
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	1244.91	24929.52	12.85	17.01	2.20	963.26	NA	1.90
+2	1255.26	25134.74	12.71	17.01	2.29	807.42	NA	1.80
+3	1266.96	25368.18	12.63	17.01	2.14	963.05	NA	1.77
+
+## Averages
+runs=3
+TPS_avg=1255.7100
+QPS_avg=25144.1467
+Latency_avg_ms=12.7300
+Latency_p95_ms=17.0100
+Errors_per_sec=1.8233

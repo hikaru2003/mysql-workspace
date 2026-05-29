@@ -1,0 +1,29 @@
+# variant         : baseline
+# date            : 2026-05-07T13:33:09+09:00
+# workload        : oltp_read_write
+# scenario        : high
+# threads         : 16
+# tables          : 1
+# table_size      : 100
+# multiplier      : 5
+# runs            : 3
+# time_per_run    : 60s
+# perf_schema     : yes
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : (none)
+# sysbench_cpus   : 6,7
+# mysqld_cpus     : 0-5
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	1489.58	29828.21	10.74	12.08	2.15	853.19	NA	2.23
+2	1472.54	29489.48	10.86	11.87	2.16	971.72	NA	2.33
+3	1451.79	29069.24	11.02	11.87	2.13	1225.76	NA	2.04
+
+## Averages
+runs=3
+TPS_avg=1471.3033
+QPS_avg=29462.3100
+Latency_avg_ms=10.8733
+Latency_p95_ms=11.9400
+Errors_per_sec=2.2000

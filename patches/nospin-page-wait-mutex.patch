@@ -1,0 +1,44 @@
+# experiment: nospin-page-wait-mutex
+# date:       2026-05-06T17:44:34+09:00
+# author:     morisaki
+# src_commit: f9c88132a87a7d9e740e50bce2621999695bd3fe
+# message:    lock_sys_page_mutex (512 page shards) と lock_wait_mutex の spin を skip して OS 待機に直行させる実験。nospin-log-mutex では log 系 mutex を対象にしたが、perf_schema 計測でより待機時間が長かった lock sys 系を今回は対象にする。
+
+diff --git a/storage/innobase/include/lock0lock.h b/storage/innobase/include/lock0lock.h
+index 24d13d9be96..00ea9e51819 100644
+--- a/storage/innobase/include/lock0lock.h
++++ b/storage/innobase/include/lock0lock.h
+@@ -1189,7 +1189,7 @@ static inline bool lock_wait_mutex_own() {
+ 
+ /** Acquire the lock_sys->wait_mutex. */
+ static inline void lock_wait_mutex_enter() {
+-  mutex_enter(&lock_sys->wait_mutex);
++  mutex_enter_nospin(&lock_sys->wait_mutex);
+ }
+ /** Release the lock_sys->wait_mutex. */
+ static inline void lock_wait_mutex_exit() { lock_sys->wait_mutex.exit(); }
+diff --git a/storage/innobase/lock/lock0guards.cc b/storage/innobase/lock/lock0guards.cc
+index 483b1ac61f0..127971bf8ff 100644
+--- a/storage/innobase/lock/lock0guards.cc
++++ b/storage/innobase/lock/lock0guards.cc
+@@ -64,7 +64,7 @@ Shard_naked_latch_guard::Shard_naked_latch_guard(ut::Location location,
+                                                  Lock_mutex &shard_mutex)
+     : m_shard_mutex{shard_mutex} {
+   ut_ad(owns_shared_global_latch());
+-  mutex_enter_inline(&m_shard_mutex, location);
++  mutex_enter_nospin(&m_shard_mutex);
+ }
+ 
+ Shard_naked_latch_guard::Shard_naked_latch_guard(ut::Location location,
+@@ -110,9 +110,9 @@ Shard_naked_latches_guard::Shard_naked_latches_guard(Lock_mutex &shard_mutex_a,
+       m_shard_mutex_2{*std::max(&shard_mutex_a, &shard_mutex_b, MUTEX_ORDER)} {
+   ut_ad(owns_shared_global_latch());
+   if (&m_shard_mutex_1 != &m_shard_mutex_2) {
+-    mutex_enter(&m_shard_mutex_1);
++    mutex_enter_nospin(&m_shard_mutex_1);
+   }
+-  mutex_enter(&m_shard_mutex_2);
++  mutex_enter_nospin(&m_shard_mutex_2);
+ }
+ 
+ Shard_naked_latches_guard::Shard_naked_latches_guard(const buf_block_t &block_a,

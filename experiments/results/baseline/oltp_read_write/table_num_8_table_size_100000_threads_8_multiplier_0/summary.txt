@@ -1,0 +1,41 @@
+# variant         : baseline
+# date            : 2026-05-18T20:03:32+09:00
+# workload        : oltp_read_write
+# scenario        : realistic
+# threads         : 8
+# tables          : 8
+# table_size      : 100000
+# multiplier      : 0
+# runs            : 10
+# time_per_run    : 60s
+# warmup_mode     : stable (pct=5%, max=10)
+# warmup_time     : 60s
+# warmup_threads  : (same as run: 8)
+# perf_schema     : no
+# remote_host     : gumma
+# mysql_host      : 192.168.23.70
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : (none)
+# sysbench_cpus   : 0-11 (on gumma)
+# mysqld_cpus     : 0-7
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	323.31	6466.27	24.65	22.28	4.16	3414.90	NA	0.00
+2	342.74	6854.80	23.34	37.56	4.14	1774.56	NA	0.00
+3	319.67	6393.33	24.99	50.11	4.18	1599.39	NA	0.00
+4	331.66	6633.12	24.12	6.67	4.35	2581.82	NA	0.00
+5	331.76	6635.16	24.09	33.72	4.25	2118.50	NA	0.00
+6	328.83	6576.60	24.27	33.12	4.09	1889.89	NA	0.00
+7	331.67	6633.34	24.07	41.85	4.17	1655.27	NA	0.00
+8	336.70	6734.08	23.76	9.56	4.27	2658.28	NA	0.00
+9	346.36	6927.30	23.10	29.72	4.34	1662.53	NA	0.00
+10	319.33	6386.63	24.95	25.28	4.25	2547.74	NA	0.00
+
+## Averages
+runs=10
+TPS_avg=331.2030
+QPS_avg=6624.0630
+Latency_avg_ms=24.1340
+Latency_p95_ms=28.9870
+Errors_per_sec=0.0000

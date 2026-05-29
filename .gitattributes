@@ -1,0 +1,4 @@
+installs/*/bin/mysqld filter=lfs diff=lfs merge=lfs -text
+installs/*/bin/mysqld_safe filter=lfs diff=lfs merge=lfs -text
+bin/sysbench.bin filter=lfs diff=lfs merge=lfs -text
+lib/*.so* filter=lfs diff=lfs merge=lfs -text

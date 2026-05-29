@@ -1,0 +1,41 @@
+# variant         : nospin-hash-lock
+# date            : 2026-05-19T16:41:57+09:00
+# workload        : oltp_read_write
+# scenario        : realistic
+# threads         : 16
+# tables          : 8
+# table_size      : 100000
+# multiplier      : 100
+# runs            : 10
+# time_per_run    : 60s
+# warmup_mode     : stable (pct=5%, max=10)
+# warmup_time     : 60s
+# warmup_threads  : (same as run: 16)
+# perf_schema     : no
+# remote_host     : gumma
+# mysql_host      : 192.168.23.70
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-hash-lock.patch
+# sysbench_cpus   : 0-11 (on gumma)
+# mysqld_cpus     : 0-7
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	475.18	9503.64	33.47	176.73	4.21	1749.48	NA	0.00
+2	434.85	8696.98	36.58	207.82	4.37	2903.31	NA	0.00
+3	442.11	8842.21	36.19	207.82	4.31	1859.07	NA	0.00
+4	480.42	9608.42	33.27	155.80	4.27	1861.68	NA	0.00
+5	451.36	9027.19	35.45	186.54	4.24	2056.31	NA	0.00
+6	462.27	9245.46	34.58	196.89	4.34	2019.65	NA	0.00
+7	446.38	8927.54	35.66	215.44	4.21	2233.52	NA	0.00
+8	427.91	8558.21	37.03	227.40	4.36	2271.94	NA	0.00
+9	404.27	8085.37	39.58	248.83	4.33	2105.25	NA	0.00
+10	412.59	8251.74	38.59	231.53	4.19	2801.95	NA	0.00
+
+## Averages
+runs=10
+TPS_avg=443.7340
+QPS_avg=8874.6760
+Latency_avg_ms=36.0400
+Latency_p95_ms=205.4800
+Errors_per_sec=0.0000

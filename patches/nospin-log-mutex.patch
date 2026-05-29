@@ -1,0 +1,50 @@
+# experiment: nospin-log-mutex
+# 概要:
+#   redo log 周りの 2 つの mutex を取得するマクロを mutex_enter から
+#   mutex_enter_nospin に置き換える。spin 段階を完全に飛ばして
+#   いきなり OS レベルの待機 (futex 等) に入るようになる。
+#
+# 対象:
+#   storage/innobase/include/log0files_governor.h:61   m_files_mutex
+#   storage/innobase/include/log0write.h:153            writer_mutex
+#
+# 目的:
+#   log writer まわりは "短い critical section を頻繁に取りに行く" 典型例
+#   とされる。spin によって他スレッドの cache を奪う影響と、いきなり
+#   block する代わりに wakeup 遅延を払う影響、どちらが効いているのかを
+#   ベースラインとの比較で見たい。
+#
+# 前提:
+#   mutex_enter_nospin は storage/innobase/include/ut0mutex.h で定義済み
+#   なので、シグネチャ互換のドロップイン置換になる。
+#
+# 適用方法:
+#   scripts/build.sh nospin-log-mutex --patch nospin-log-mutex.patch
+#   scripts/init-instance.sh nospin-log-mutex --port 3308
+#   scripts/start.sh nospin-log-mutex
+#   # ベースライン (port 3307) と並行起動して比較する。
+
+diff --git a/storage/innobase/include/log0files_governor.h b/storage/innobase/include/log0files_governor.h
+--- a/storage/innobase/include/log0files_governor.h
++++ b/storage/innobase/include/log0files_governor.h
+@@ -58,7 +58,7 @@
+   return srv_thread_is_active(srv_threads.m_log_files_governor);
+ }
+
+-#define log_files_mutex_enter(log) mutex_enter(&((log).m_files_mutex))
++#define log_files_mutex_enter(log) mutex_enter_nospin(&((log).m_files_mutex))
+
+ #define log_files_mutex_exit(log) mutex_exit(&((log).m_files_mutex))
+
+diff --git a/storage/innobase/include/log0write.h b/storage/innobase/include/log0write.h
+--- a/storage/innobase/include/log0write.h
++++ b/storage/innobase/include/log0write.h
+@@ -150,7 +150,7 @@
+ #define log_flush_notifier_mutex_own(log) \
+   (mutex_own(&((log).flush_notifier_mutex)) || !log_flush_notifier_is_active())
+
+-#define log_writer_mutex_enter(log) mutex_enter(&((log).writer_mutex))
++#define log_writer_mutex_enter(log) mutex_enter_nospin(&((log).writer_mutex))
+
+ #define log_writer_mutex_enter_nowait(log) \
+   mutex_enter_nowait(&((log).writer_mutex))

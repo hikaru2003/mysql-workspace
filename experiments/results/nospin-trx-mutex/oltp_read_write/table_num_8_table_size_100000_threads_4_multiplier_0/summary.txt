@@ -1,0 +1,41 @@
+# variant         : nospin-trx-mutex
+# date            : 2026-05-19T00:24:36+09:00
+# workload        : oltp_read_write
+# scenario        : realistic
+# threads         : 4
+# tables          : 8
+# table_size      : 100000
+# multiplier      : 0
+# runs            : 10
+# time_per_run    : 60s
+# warmup_mode     : stable (pct=5%, max=10)
+# warmup_time     : 60s
+# warmup_threads  : (same as run: 4)
+# perf_schema     : no
+# remote_host     : gumma
+# mysql_host      : 192.168.23.70
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-trx-mutex.patch
+# sysbench_cpus   : 0-11 (on gumma)
+# mysqld_cpus     : 0-7
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	193.08	3861.63	20.55	36.89	4.19	1435.39	NA	0.00
+2	215.19	4303.79	18.53	5.28	4.22	1420.96	NA	0.00
+3	209.07	4181.37	19.13	5.37	4.17	1389.10	NA	0.00
+4	214.01	4280.19	18.62	5.37	4.16	1220.01	NA	0.00
+5	211.22	4224.31	18.94	5.28	4.16	1849.62	NA	0.00
+6	211.60	4231.92	18.84	5.28	4.31	1527.97	NA	0.00
+7	207.79	4155.74	19.15	5.28	4.17	1456.59	NA	0.00
+8	211.26	4225.25	18.79	5.28	4.23	1614.23	NA	0.00
+9	199.41	3988.10	20.03	5.37	4.22	1497.40	NA	0.00
+10	201.96	4039.14	19.74	5.37	4.14	1443.81	NA	0.00
+
+## Averages
+runs=10
+TPS_avg=207.4590
+QPS_avg=4149.1440
+Latency_avg_ms=19.2320
+Latency_p95_ms=8.4770
+Errors_per_sec=0.0000

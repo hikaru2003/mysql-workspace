@@ -1,0 +1,29 @@
+# ビルド成果物（再生成可能）
+builds/
+
+# large-multiplier 以外の variant は管理対象外
+installs/baseline/
+installs/baseline-fp/
+installs/nospin-*/
+
+# MySQLランタイムデータ（サーバごとに初期化）
+installs/*/data/
+installs/*/logs/
+installs/*/run/
+installs/*/tmp/
+installs/*/var/
+
+# MySQLテストスイート（実験不要）
+installs/*/mysql-test/
+
+# perfデータ（大容量）
+experiments/perf/
+perf.data
+perf.data.old
+*.data.old
+
+# Claudeプロジェクト設定
+.claude/
+
+# MySQL srcディレクトリ（ビルド元、別管理）
+src/

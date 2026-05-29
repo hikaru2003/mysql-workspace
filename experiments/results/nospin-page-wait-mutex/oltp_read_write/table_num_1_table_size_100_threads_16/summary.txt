@@ -1,0 +1,29 @@
+# variant         : nospin-page-wait-mutex
+# date            : 2026-05-06T18:34:27+09:00
+# workload        : oltp_read_write
+# scenario        : high
+# threads         : 16
+# tables          : 1
+# table_size      : 100
+# multiplier      : (unchanged)
+# runs            : 3
+# time_per_run    : 60s
+# perf_schema     : yes
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-page-wait-mutex.patch
+# sysbench_cpus   : 6,7
+# mysqld_cpus     : 0-5
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	1283.35	25695.45	12.46	16.41	2.13	976.98	NA	1.73
+2	1275.47	25541.21	12.54	16.41	2.20	933.33	NA	1.95
+3	1296.26	25953.22	12.34	16.71	2.12	882.68	NA	1.70
+
+## Averages
+runs=3
+TPS_avg=1285.0267
+QPS_avg=25729.9600
+Latency_avg_ms=12.4467
+Latency_p95_ms=16.5100
+Errors_per_sec=1.7933

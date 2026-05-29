@@ -1,0 +1,19 @@
+# experiment: nospin-trx-mutex
+# date:       2026-05-06T18:38:36+09:00
+# author:     morisaki
+# src_commit: f9c88132a87a7d9e740e50bce2621999695bd3fe
+# message:    trx_mutex（trx->mutex）の spin を skip して即 OS wait に落とす実験。AVG_WAIT_MS=0.0001ms と極めて短く、spin が有利なはずという仮説を実証するために nospin にして TPS 低下を確認する。
+
+diff --git a/storage/innobase/include/trx0trx.h b/storage/innobase/include/trx0trx.h
+index 1d5e8770439..5e3626760ba 100644
+--- a/storage/innobase/include/trx0trx.h
++++ b/storage/innobase/include/trx0trx.h
+@@ -1375,7 +1375,7 @@ trx_mutex(2)
+   do {                                             \
+     ut_ad(!trx_mutex_own(t));                      \
+     ut_d(trx_before_mutex_enter(t, first_of_two)); \
+-    mutex_enter(&t->mutex);                        \
++    mutex_enter_nospin(&t->mutex);                 \
+   } while (0)
+ 
+ /** Acquire the trx->mutex (and promise not to request any more). */

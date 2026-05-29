@@ -1,0 +1,24 @@
+# experiment: large-multiplier
+# date:       2026-05-21
+# author:     morisaki
+# src_commit: f9c88132a87a7d9e740e50bce2621999695bd3fe
+# message:    innodb_spin_wait_pause_multiplier の上限を 100 から 10000 に拡張する。
+#             デフォルト値・最小値・動作は変更しない。
+#             目的: simple_mysql 実験で multiplier=5000 など大きな値がスループットを
+#             向上させることが確認されたため、MySQL 本体で同条件を再現して検証する。
+#             delay=6・spin_loops=30 を固定し multiplier のみを変化させることで
+#             simple_mysql と同一の実験構造を維持する。
+
+diff --git a/storage/innobase/handler/ha_innodb.cc b/storage/innobase/handler/ha_innodb.cc
+index 6596485a8bb..84a6bf40d96 100644
+--- a/storage/innobase/handler/ha_innodb.cc
++++ b/storage/innobase/handler/ha_innodb.cc
+@@ -23037,7 +23037,7 @@ static MYSQL_SYSVAR_ULONG(spin_wait_pause_multiplier,
+                           "Controls how many times in a row to use a PAUSE "
+                           "instruction to achieve one unit of delay in a spin "
+                           "lock (see @@innodb_spin_wait_delay), defaults to 50",
+-                          nullptr, nullptr, 50, 0, 100, 0);
++                          nullptr, nullptr, 50, 0, 10000, 0);
+
+ static MYSQL_SYSVAR_ULONGLONG(
+     fsync_threshold, os_fsync_threshold, PLUGIN_VAR_RQCMDARG,

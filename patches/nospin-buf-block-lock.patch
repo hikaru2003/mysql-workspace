@@ -1,0 +1,284 @@
+# experiment: nospin-buf-block-lock
+# date:       2026-05-20T10:28:14+09:00
+# author:     morisaki
+# src_commit: f9c88132a87a7d9e740e50bce2621999695bd3fe
+# message:    buf_block_t::lock（buffer pool page latch）の spin を除去する実験。perf Flamegraph で Buf_fetch::single_page → ut_delay が CPU cycles の最大消費源（~37B cycles）と判明した。nospin-hash-lock は hash_table_locks をターゲットにしたが、実際のホットパスは buf_block_t::lock（block->lock）だった。S/X-lock の spinning 版（rw_lock_s/x_lock_gen, rw_lock_s/x_lock）を nospin 版に差し替え、baseline と TPS を比較する。nospin API は nospin-hash-lock で実装済みの sync0rw インフラを流用。
+
+diff --git a/storage/innobase/buf/buf0buf.cc b/storage/innobase/buf/buf0buf.cc
+index c10705eb134..12f3ed1fb08 100644
+--- a/storage/innobase/buf/buf0buf.cc
++++ b/storage/innobase/buf/buf0buf.cc
+@@ -3600,7 +3600,7 @@ static void buf_wait_for_read(buf_block_t *block) {
+     /* Page is X-latched on block->lock until the read is completed.
+     Let's just wait for S-lock on block->lock, it will be granted as soon as the
+     read completes. */
+-    rw_lock_s_lock(&block->lock, UT_LOCATION_HERE);
++    rw_lock_s_lock_nospin(&block->lock, UT_LOCATION_HERE);
+     rw_lock_s_unlock(&block->lock);
+   }
+ }
+@@ -4013,7 +4013,7 @@ dberr_t Buf_fetch<T>::zip_page_handler(buf_block_t *&fix_block) {
+   buf_block_set_io_fix(block, BUF_IO_READ);
+ 
+   ut::Location loc{m_file, m_line};
+-  rw_lock_x_lock_gen(&block->lock, 0, loc);
++  rw_lock_x_lock_nospin(&block->lock, loc);
+ 
+   rw_lock_x_unlock(m_hash_lock);
+ 
+@@ -4159,7 +4159,7 @@ void Buf_fetch<T>::mtr_add_page(buf_block_t *block) {
+       break;
+ 
+     case RW_S_LATCH:
+-      rw_lock_s_lock_gen(&block->lock, 0, loc);
++      rw_lock_s_lock_nospin(&block->lock, loc);
+       fix_type = MTR_MEMO_PAGE_S_FIX;
+       break;
+ 
+@@ -4171,7 +4171,7 @@ void Buf_fetch<T>::mtr_add_page(buf_block_t *block) {
+ 
+     default:
+       ut_ad(m_rw_latch == RW_X_LATCH);
+-      rw_lock_x_lock_gen(&block->lock, 0, loc);
++      rw_lock_x_lock_nospin(&block->lock, loc);
+ 
+       fix_type = MTR_MEMO_PAGE_X_FIX;
+       break;
+@@ -4998,7 +4998,7 @@ buf_page_t *buf_page_init_for_read(ulint mode, const page_id_t &page_id,
+     read is completed.  The x-lock is cleared by the
+     io-handler thread. */
+ 
+-    rw_lock_x_lock_gen(&block->lock, BUF_IO_READ, UT_LOCATION_HERE);
++    rw_lock_x_lock_nospin(&block->lock, UT_LOCATION_HERE);
+ 
+     rw_lock_x_unlock(hash_lock);
+ 
+@@ -5165,7 +5165,7 @@ buf_block_t *buf_page_create(const page_id_t &page_id,
+   mtr_memo_type_t mtr_latch_type;
+ 
+   if (rw_latch == RW_X_LATCH) {
+-    rw_lock_x_lock(&block->lock, UT_LOCATION_HERE);
++    rw_lock_x_lock_nospin(&block->lock, UT_LOCATION_HERE);
+     mtr_latch_type = MTR_MEMO_PAGE_X_FIX;
+   } else {
+     rw_lock_sx_lock(&block->lock, UT_LOCATION_HERE);
+diff --git a/storage/innobase/include/sync0rw.h b/storage/innobase/include/sync0rw.h
+index 02286a654e5..cdb8453407c 100644
+--- a/storage/innobase/include/sync0rw.h
++++ b/storage/innobase/include/sync0rw.h
+@@ -190,6 +190,10 @@ has an s-lock, locking does not succeed!
+ @param[in]      location        location where requested */
+ void rw_lock_x_lock_func(rw_lock_t *lock, ulint pass, ut::Location location);
+ 
++/** spin なしで x-lock を取得する。fast path 失敗時に即 OS wait へ落ちる。 */
++void rw_lock_x_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                ut::Location location);
++
+ /** Low-level function for acquiring an sx lock.
+ @param[in]      lock            pointer to rw-lock
+ @param[in]      pass            pass value; != 0, if the lock will be passed to
+@@ -546,6 +550,14 @@ function!
+ static inline void pfs_rw_lock_s_lock_func(rw_lock_t *lock, ulint pass,
+                                            ut::Location location);
+ 
++/** PFS forward declaration: nospin s-lock（実装は sync0rw.ic）*/
++static inline void pfs_rw_lock_s_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                                   ut::Location location);
++
++/** PFS forward declaration: nospin x-lock（実装は sync0rw.ic）*/
++static inline void pfs_rw_lock_x_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                                   ut::Location location);
++
+ /** Performance schema instrumented wrap function for rw_lock_s_lock_func()
+ NOTE! Please use the corresponding macro rw_lock_s_lock(), not directly this
+ function!
+@@ -736,6 +748,11 @@ static inline void rw_lock_s_lock_gen(rw_lock_t *M, ulint P, ut::Location L) {
+   pfs_rw_lock_s_lock_func(M, P, L);
+ }
+ 
++/** spin なしで s-lock を取得する（hash_table_locks 等の極短 hold-time 向け実験用）。 */
++static inline void rw_lock_s_lock_nospin(rw_lock_t *M, ut::Location L) {
++  pfs_rw_lock_s_lock_nospin_func(M, 0, L);
++}
++
+ static inline bool rw_lock_s_lock_nowait(rw_lock_t *M, ut::Location L) {
+   return pfs_rw_lock_s_lock_low(M, 0, L);
+ }
+@@ -787,6 +804,11 @@ static inline void rw_lock_x_lock_gen(rw_lock_t *M, ulint P, ut::Location L) {
+   pfs_rw_lock_x_lock_func(M, P, L);
+ }
+ 
++/** spin なしで x-lock を取得する（hash_table_locks 等の極短 hold-time 向け実験用）。 */
++static inline void rw_lock_x_lock_nospin(rw_lock_t *M, ut::Location L) {
++  pfs_rw_lock_x_lock_nospin_func(M, 0, L);
++}
++
+ static inline bool rw_lock_x_lock_nowait(rw_lock_t *M, ut::Location L) {
+   return pfs_rw_lock_x_lock_func_nowait(M, L);
+ }
+diff --git a/storage/innobase/include/sync0rw.ic b/storage/innobase/include/sync0rw.ic
+index 3dcd8518003..b7f563ff7b3 100644
+--- a/storage/innobase/include/sync0rw.ic
++++ b/storage/innobase/include/sync0rw.ic
+@@ -48,7 +48,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
+  @param[in] pass pass value; !=0, if the lock will be passed to another thread
+  to unlock
+  @param[in] location location where requested */
+-void rw_lock_s_lock_spin(rw_lock_t *lock, ulint pass, ut::Location location);
++void rw_lock_s_lock_spin(rw_lock_t *lock, ulint pass, ut::Location location,
++                         ulint i_start = 0);
+ #ifdef UNIV_DEBUG
+ /** Inserts the debug information for an rw-lock.
+ @param[in] lock rw-lock
+@@ -295,6 +296,59 @@ static inline void rw_lock_s_lock_func(rw_lock_t *lock, ulint pass,
+   }
+ }
+ 
++/** spin なしで s-lock を取得する。fast path 失敗時に即 OS wait へ落ちる。
++ hash_table_locks のような極短 hold-time の rw_lock 向け。 */
++static inline void rw_lock_s_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                              ut::Location location) {
++  ut_ad(!rw_lock_own(lock, RW_LOCK_S));
++  ut_ad(!rw_lock_own(lock, RW_LOCK_X));
++
++  if (!rw_lock_s_lock_low(lock, pass, location)) {
++    rw_lock_s_lock_spin(lock, pass, location, srv_n_spin_wait_rounds);
++  }
++}
++
++/** PFS ラッパー: rw_lock_s_lock_nospin_func */
++ALWAYS_INLINE
++void pfs_rw_lock_s_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                    ut::Location location) {
++  if (lock->pfs_psi != nullptr) {
++    if (lock->pfs_psi->m_enabled) {
++      PSI_rwlock_locker *locker;
++      PSI_rwlock_locker_state state;
++      locker = PSI_RWLOCK_CALL(start_rwlock_rdwait)(
++          &state, lock->pfs_psi, PSI_RWLOCK_SHAREDLOCK, location.filename,
++          static_cast<uint>(location.line));
++      rw_lock_s_lock_nospin_func(lock, pass, location);
++      if (locker != nullptr) {
++        PSI_RWLOCK_CALL(end_rwlock_rdwait)(locker, 0);
++      }
++      return;
++    }
++  }
++  rw_lock_s_lock_nospin_func(lock, pass, location);
++}
++
++/** PFS ラッパー: rw_lock_x_lock_nospin_func */
++static inline void pfs_rw_lock_x_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                                  ut::Location location) {
++  if (lock->pfs_psi != nullptr) {
++    if (lock->pfs_psi->m_enabled) {
++      PSI_rwlock_locker *locker;
++      PSI_rwlock_locker_state state;
++      locker = PSI_RWLOCK_CALL(start_rwlock_wrwait)(
++          &state, lock->pfs_psi, PSI_RWLOCK_EXCLUSIVELOCK, location.filename,
++          static_cast<uint>(location.line));
++      rw_lock_x_lock_nospin_func(lock, pass, location);
++      if (locker != nullptr) {
++        PSI_RWLOCK_CALL(end_rwlock_wrwait)(locker, 0);
++      }
++      return;
++    }
++  }
++  rw_lock_x_lock_nospin_func(lock, pass, location);
++}
++
+ /** NOTE! Use the corresponding macro, not directly this function! Lock an
+  rw-lock in exclusive mode for the current thread if the lock can be
+  obtained immediately.
+diff --git a/storage/innobase/sync/sync0rw.cc b/storage/innobase/sync/sync0rw.cc
+index 8d28cf845ab..789f5b97d77 100644
+--- a/storage/innobase/sync/sync0rw.cc
++++ b/storage/innobase/sync/sync0rw.cc
+@@ -270,8 +270,9 @@ rw_lock_t::~rw_lock_t() {
+   ut_d(magic_n = 0);
+ }
+ 
+-void rw_lock_s_lock_spin(rw_lock_t *lock, ulint pass, ut::Location location) {
+-  ulint i = 0; /* spin round count */
++void rw_lock_s_lock_spin(rw_lock_t *lock, ulint pass, ut::Location location,
++                         ulint i_start) {
++  ulint i = i_start; /* spin round count */
+   sync_array_t *sync_arr;
+   uint64_t count_os_wait = 0;
+ 
+@@ -339,7 +340,7 @@ lock_loop:
+ #endif
+     sync_array_wait_event(sync_arr, cell);
+ 
+-    i = 0;
++    i = i_start;
+ 
+     goto lock_loop;
+   }
+@@ -640,6 +641,66 @@ lock_loop:
+   goto lock_loop;
+ }
+ 
++void rw_lock_x_lock_nospin_func(rw_lock_t *lock, ulint pass,
++                                ut::Location location) {
++  ulint i = srv_n_spin_wait_rounds; /* spin をスキップ */
++  sync_array_t *sync_arr;
++  uint64_t count_os_wait = 0;
++  bool spinning = false;
++
++  ut_ad(rw_lock_validate(lock));
++  ut_ad(!rw_lock_own(lock, RW_LOCK_S));
++
++lock_loop:
++
++  if (rw_lock_x_lock_low(lock, pass, location.filename, location.line)) {
++    if (count_os_wait > 0) {
++      lock->count_os_wait += static_cast<uint32_t>(count_os_wait);
++    }
++    return;
++  } else {
++    if (!spinning) {
++      spinning = true;
++    }
++    os_rmb;
++    /* i >= srv_n_spin_wait_rounds なので spin loop は実行されない */
++    while (i < srv_n_spin_wait_rounds && lock->lock_word <= X_LOCK_HALF_DECR) {
++      if (srv_spin_wait_delay) {
++        ut_delay(ut::random_from_interval_fast(0, srv_spin_wait_delay));
++      }
++      i++;
++    }
++    if (i >= srv_n_spin_wait_rounds) {
++      std::this_thread::yield();
++    } else {
++      goto lock_loop;
++    }
++  }
++
++  sync_cell_t *cell;
++
++  sync_arr = sync_array_get_and_reserve_cell(lock, RW_LOCK_X, location, &cell);
++
++  rw_lock_set_waiter_flag(lock);
++
++  if (rw_lock_x_lock_low(lock, pass, location.filename, location.line)) {
++    sync_array_free_cell(sync_arr, cell);
++
++    if (count_os_wait > 0) {
++      lock->count_os_wait += static_cast<uint32_t>(count_os_wait);
++    }
++    return;
++  }
++
++  ++count_os_wait;
++
++  sync_array_wait_event(sync_arr, cell);
++
++  i = srv_n_spin_wait_rounds; /* OS wait 後も spin しない */
++
++  goto lock_loop;
++}
++
+ void rw_lock_sx_lock_func(rw_lock_t *lock, ulint pass, ut::Location location) {
+   ulint i = 0;
+   sync_array_t *sync_arr;

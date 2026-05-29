@@ -1,0 +1,29 @@
+# variant         : nospin-hash-lock
+# date            : 2026-05-06T21:40:50+09:00
+# workload        : oltp_read_write
+# scenario        : high
+# threads         : 16
+# tables          : 1
+# table_size      : 100
+# multiplier      : (unchanged)
+# runs            : 3
+# time_per_run    : 60s
+# perf_schema     : yes
+# src_commit      : f9c88132a87a7d9e740e50bce2621999695bd3fe
+# patch_file      : nospin-hash-lock.patch
+# sysbench_cpus   : 6,7
+# mysqld_cpus     : 0-5
+
+## Metrics (TSV)
+run	tps	qps	latency_avg_ms	latency_p95_ms	latency_min_ms	latency_max_ms	total_time_s	errors_per_sec
+1	1310.03	26230.67	12.21	16.12	2.18	902.08	NA	1.83
+2	1313.80	26311.76	12.18	15.83	2.12	961.11	NA	2.18
+3	1306.71	26164.03	12.24	15.83	2.07	918.59	NA	1.81
+
+## Averages
+runs=3
+TPS_avg=1310.1800
+QPS_avg=26235.4867
+Latency_avg_ms=12.2100
+Latency_p95_ms=15.9267
+Errors_per_sec=1.9400
