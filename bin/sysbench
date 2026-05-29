@@ -8,7 +8,7 @@ export LD_LIBRARY_PATH="$WORKSPACE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 args=()
 for arg in "$@"; do
-  lua="$WORKSPACE/share/sysbench/${arg}.lua"
+  lua="$WORKSPACE/share/${arg}.lua"
   if [[ -f "$lua" ]]; then
     args+=("$lua")
   else
