@@ -118,11 +118,14 @@ fi
 RAW_DIR="$RESULT_DIR/raw"
 mkdir -p "$RESULT_DIR" "$RAW_DIR"
 METRICS_FILE="$RESULT_DIR/metrics.tsv"
+SUMMARY_FILE="$RESULT_DIR/summary.txt"
 
-# ヘッダ書き込み（初回のみ）
-if [[ ! -f "$METRICS_FILE" ]]; then
-  printf "server\tvariant\tthreads\tmultiplier\tround\ttps\tlat_avg_ms\tlat_p95_ms\n" > "$METRICS_FILE"
-fi
+# 前回の結果をクリア（metrics.tsv と raw/ を初期化）
+rm -f "$METRICS_FILE" "$SUMMARY_FILE" "$RAW_DIR"/*.txt
+
+# metrics.tsv ヘッダ
+printf "server\tvariant\tthreads\tmultiplier\tround\ttps\tlat_avg_ms\tlat_p95_ms\n" \
+  > "$METRICS_FILE"
 
 mysql_set() {
   "$MYSQL" --socket="$SOCKET" -u root -sN -e "$1" 2>/dev/null
@@ -204,9 +207,9 @@ for THREAD in "${THREAD_LIST[@]}"; do
       ACTUAL_M=$(mysql_set "SELECT @@innodb_spin_wait_pause_multiplier;")
       echo -n "  m=$ACTUAL_M threads=$THREAD ... "
 
-      # 本番 run（生データを保存）
+      # 本番 run（生データを保存: bench.sh に倣い run<N>.txt 形式）
       RAW_FILE="$RAW_DIR/t${THREAD}_m${ACTUAL_M}_r${ROUND}.txt"
-      run_sysbench "$THREAD" "$TIME" > "$RAW_FILE"
+      run_sysbench "$THREAD" "$TIME" > "$RAW_FILE" 2>&1
 
       TPS=$(parse_tps     < "$RAW_FILE")
       LAT_AVG=$(parse_lat_avg < "$RAW_FILE")
@@ -227,36 +230,51 @@ mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
            SET GLOBAL innodb_spin_wait_delay=6;
            SET GLOBAL innodb_sync_spin_loops=30;"
 
-# --- summary 生成 -----------------------------------------------------------
-SUMMARY_FILE="$RESULT_DIR/summary.tsv"
-printf "server\tvariant\tthreads\tmultiplier\truns\ttps_avg\ttps_stddev\tlat_avg_ms\tlat_p95_ms\n" \
-  > "$SUMMARY_FILE"
-awk -F'\t' '
-  NR==1 { next }
-  {
-    key = $3 SUBSEP $4   # threads, multiplier
-    n[key]++
-    tps[key]  += $6;  tps2[key] += $6^2
-    lat[key]  += $7
-    p95[key]  += $8
-    srv[key]=$1; var[key]=$2; thr[key]=$3; mul[key]=$4
-  }
-  END {
-    for (key in n) {
-      cnt = n[key]
-      avg = tps[key] / cnt
-      sd  = (cnt > 1) ? sqrt(tps2[key]/cnt - avg^2) : 0
-      printf "%s\t%s\t%s\t%s\t%d\t%.2f\t%.2f\t%.2f\t%.2f\n",
-        srv[key], var[key], thr[key], mul[key],
-        cnt, avg, sd, lat[key]/cnt, p95[key]/cnt
+# --- summary.txt 生成（bench.sh フォーマットに準拠）-----------------------
+{
+  echo "# server          : $SERVER"
+  echo "# variant         : $VARIANT"
+  echo "# date            : $(date -Iseconds)"
+  echo "# multipliers     : $MULTIPLIERS"
+  echo "# threads         : $THREADS"
+  echo "# rounds          : $RUNS"
+  echo "# time_per_run    : ${TIME}s"
+  echo "# warmup_time     : ${WARMUP_TIME}s"
+  echo "# tables          : $TABLES"
+  echo "# table_size      : $TABLE_SIZE"
+  echo "# mysqld_cores    : $MYSQLD_CORES"
+  echo "# sysbench_cores  : $SYSBENCH_CORES"
+  echo ""
+  echo "## Metrics (TSV)"
+  cat "$METRICS_FILE"
+  echo ""
+  echo "## Averages by (threads, multiplier)"
+  printf "threads\tmultiplier\truns\ttps_avg\ttps_stddev\tlat_avg_ms\tlat_p95_ms\n"
+  awk -F'\t' '
+    NR==1 { next }
+    {
+      key = $3 SUBSEP $4
+      n[key]++
+      tps[key] += $6; tps2[key] += $6^2
+      lat[key] += $7; p95[key]  += $8
+      thr[key]=$3; mul[key]=$4
     }
-  }
-' "$METRICS_FILE" | sort -t$'\t' -k3,3n -k4,4n >> "$SUMMARY_FILE"
+    END {
+      for (key in n) {
+        cnt = n[key]
+        avg = tps[key] / cnt
+        sd  = (cnt > 1) ? sqrt(tps2[key]/cnt - avg^2) : 0
+        printf "%s\t%s\t%d\t%.2f\t%.2f\t%.2f\t%.2f\n",
+          thr[key], mul[key], cnt, avg, sd, lat[key]/cnt, p95[key]/cnt
+      }
+    }
+  ' "$METRICS_FILE" | sort -t$'\t' -k1,1n -k2,2n
+} > "$SUMMARY_FILE"
 
 echo ""
 echo "========================================"
 echo " 完了"
-echo "  metrics : $METRICS_FILE"
 echo "  summary : $SUMMARY_FILE"
+echo "  metrics : $METRICS_FILE"
 echo "  raw     : $RAW_DIR/"
 echo "========================================"
