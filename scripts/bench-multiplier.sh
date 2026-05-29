@@ -7,12 +7,18 @@
 #   delay=6・spin_loops=30 は固定（simple_mysql 実験との対応を保つため）。
 #
 #   実行順序: 全 multiplier を 1 周するのを N 回繰り返す（ラウンドロビン）。
-#     round1: m=50 → m=100 → m=200 → ...
-#     round2: m=50 → m=100 → m=200 → ...
+#     round1: m=0 → m=10 → m=25 → ...
+#     round2: m=0 → m=10 → m=25 → ...
 #   これにより「後に実行するほどバッファプールが温まって有利」というバイアスを排除する。
 #
+# 結果ディレクトリ構成:
+#   experiments/results/<variant>/<hostname>/multiplier_experiment/
+#     metrics.tsv          集計済み TSV（全 run 分）
+#     raw/t<T>_m<M>_r<R>.txt  sysbench 生出力（threads=T, multiplier=M, round=R）
+#
 # オプション:
-#   --multipliers  <list>   カンマ区切り multiplier 値（デフォルト: 50,100,200,500,1000,2000,5000）
+#   --multipliers  <list>   カンマ区切り multiplier 値
+#                           （デフォルト: 0,10,25,50,75,100,200,500）
 #   --threads      <list>   カンマ区切りスレッド数（デフォルト: 4,8,16,32,64）
 #   --mysqld-cores <range>  mysqld の taskset コア指定（デフォルト: 0-15）
 #   --sysbench-cores <range> sysbench の taskset コア指定（デフォルト: 16-19）
@@ -21,12 +27,12 @@
 #   --warmup-time  T        warmup 1 run の秒数（デフォルト: 30）
 #   --tables       N        sysbench テーブル数（デフォルト: 8）
 #   --table-size   N        sysbench テーブル行数（デフォルト: 100000）
-#   --result-dir   DIR      結果 TSV の保存先ディレクトリ
-#                           （デフォルト: experiments/results/<variant>/multiplier_experiment）
+#   --result-dir   DIR      結果保存先ルートディレクトリ
+#                           （デフォルト: experiments/results/<variant>/<hostname>/multiplier_experiment）
 #
 # 使用例:
 #   scripts/bench-multiplier.sh large-multiplier \
-#     --multipliers 50,100,200,500,1000,2000,5000 \
+#     --multipliers 0,10,25,50,75,100,200,500 \
 #     --threads 4,8,16,32,64 \
 #     --mysqld-cores 0-15 --sysbench-cores 16-19 \
 #     --runs 5 --time 60
@@ -41,7 +47,7 @@ VARIANT="${1:-}"
 [[ -z "$VARIANT" ]] && { echo "Usage: $0 <variant> [options]"; exit 1; }
 shift
 
-MULTIPLIERS="50,100,200,500,1000,2000,5000"
+MULTIPLIERS="0,10,25,50,75,100,200,500"
 THREADS="4,8,16,32,64"
 MYSQLD_CORES="0-15"
 SYSBENCH_CORES="16-19"
@@ -72,6 +78,7 @@ INSTALL_DIR="$WORKSPACE/installs/$VARIANT"
 SOCKET="$INSTALL_DIR/run/mysqld.sock"
 MYSQL="$INSTALL_DIR/bin/mysql"
 SYSBENCH="${WORKSPACE}/bin/sysbench"
+SERVER=$(hostname -s)
 
 # sysbench バイナリ: ワークスペース同梱版を優先、なければ PATH から探す
 if [[ ! -x "$SYSBENCH" ]]; then
@@ -86,7 +93,6 @@ MAX_M=$(
     -e "SELECT VARIABLE_VALUE FROM performance_schema.global_variables
         WHERE VARIABLE_NAME='innodb_spin_wait_pause_multiplier';" 2>/dev/null || echo 50
 )
-# 設定可能上限を確認（10000 未満なら unpatched binary の可能性）
 ACTUAL_MAX=$(
   "$MYSQL" --socket="$SOCKET" -u root -sN \
     -e "SET GLOBAL innodb_spin_wait_pause_multiplier=10000;
@@ -100,16 +106,17 @@ if [[ "$ACTUAL_MAX" -lt 10000 ]]; then
   echo "         パッチ適用済み variant が必要です（現在は $ACTUAL_MAX でクランプされます）。"
 fi
 
-# 結果ディレクトリ
+# 結果ディレクトリ（サーバ名別）
 if [[ -z "$RESULT_DIR" ]]; then
-  RESULT_DIR="$WORKSPACE/experiments/results/$VARIANT/multiplier_experiment"
+  RESULT_DIR="$WORKSPACE/experiments/results/$VARIANT/$SERVER/multiplier_experiment"
 fi
-mkdir -p "$RESULT_DIR"
+RAW_DIR="$RESULT_DIR/raw"
+mkdir -p "$RESULT_DIR" "$RAW_DIR"
 METRICS_FILE="$RESULT_DIR/metrics.tsv"
 
 # ヘッダ書き込み（初回のみ）
 if [[ ! -f "$METRICS_FILE" ]]; then
-  printf "variant\tthreads\tmultiplier\tround\ttps\tlat_avg_ms\tlat_p95_ms\n" > "$METRICS_FILE"
+  printf "server\tvariant\tthreads\tmultiplier\tround\ttps\tlat_avg_ms\tlat_p95_ms\n" > "$METRICS_FILE"
 fi
 
 mysql_set() {
@@ -138,6 +145,7 @@ IFS=',' read -ra THREAD_LIST    <<< "$THREADS"
 
 echo "========================================"
 echo " bench-multiplier"
+echo "  server         : $SERVER"
 echo "  variant        : $VARIANT"
 echo "  multipliers    : $MULTIPLIERS"
 echo "  threads        : $THREADS"
@@ -145,6 +153,7 @@ echo "  rounds         : $RUNS"
 echo "  time/run       : ${TIME}s"
 echo "  mysqld cores   : $MYSQLD_CORES"
 echo "  sysbench cores : $SYSBENCH_CORES"
+echo "  result dir     : $RESULT_DIR"
 echo "========================================"
 
 # mysqld の taskset を再確認（起動済み前提）
@@ -162,6 +171,7 @@ for THREAD in "${THREAD_LIST[@]}"; do
     WHERE table_schema='sbtest';" 2>/dev/null || echo 0)
   if [[ "$TABLE_COUNT" -lt "$TABLES" ]]; then
     echo "[prepare] sysbench prepare (tables=$TABLES, size=$TABLE_SIZE)..."
+    mysql_set "CREATE DATABASE IF NOT EXISTS sbtest;"
     taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
       --mysql-socket="$SOCKET" --mysql-user=root \
       --tables="$TABLES" --table-size="$TABLE_SIZE" \
@@ -186,21 +196,22 @@ for THREAD in "${THREAD_LIST[@]}"; do
                  SET GLOBAL innodb_spin_wait_delay=6;
                  SET GLOBAL innodb_sync_spin_loops=30;"
 
-      # 確認
       ACTUAL_M=$(mysql_set "SELECT @@innodb_spin_wait_pause_multiplier;")
       echo -n "  m=$ACTUAL_M threads=$THREAD ... "
 
-      # 本番 run
-      OUTPUT=$(run_sysbench "$THREAD" "$TIME")
-      TPS=$(echo "$OUTPUT"     | parse_tps)
-      LAT_AVG=$(echo "$OUTPUT" | parse_lat_avg)
-      LAT_P95=$(echo "$OUTPUT" | parse_lat_p95)
+      # 本番 run（生データを保存）
+      RAW_FILE="$RAW_DIR/t${THREAD}_m${ACTUAL_M}_r${ROUND}.txt"
+      run_sysbench "$THREAD" "$TIME" > "$RAW_FILE"
+
+      TPS=$(parse_tps     < "$RAW_FILE")
+      LAT_AVG=$(parse_lat_avg < "$RAW_FILE")
+      LAT_P95=$(parse_lat_p95 < "$RAW_FILE")
 
       printf "TPS=%-8s lat_avg=%-6s lat_p95=%s\n" "$TPS" "${LAT_AVG}ms" "${LAT_P95}ms"
 
       # TSV に記録
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-        "$VARIANT" "$THREAD" "$ACTUAL_M" "$ROUND" "$TPS" "$LAT_AVG" "$LAT_P95" \
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+        "$SERVER" "$VARIANT" "$THREAD" "$ACTUAL_M" "$ROUND" "$TPS" "$LAT_AVG" "$LAT_P95" \
         >> "$METRICS_FILE"
     done
   done
