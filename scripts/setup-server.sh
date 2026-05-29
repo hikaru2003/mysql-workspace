@@ -133,8 +133,12 @@ echo "  OK: $($SYSBENCH --version)"
 # --- 4. MySQL インスタンス初期化 --------------------------------------------
 echo ""
 echo "[3/5] Initializing MySQL instance..."
-if [[ -d "$INSTALL_DIR/data" && -f "$INSTALL_DIR/etc/my.cnf" ]]; then
-  echo "  Already initialized (data/ exists). Skipping."
+if [[ -f "$INSTALL_DIR/data/ibdata1" ]]; then
+  echo "  Already initialized (data/ibdata1 exists). Skipping."
+  if [[ ! -f "$INSTALL_DIR/etc/my.cnf" ]]; then
+    echo "  my.cnf missing (gitignored). Regenerating..."
+    "$SCRIPT_DIR/init-instance.sh" "$VARIANT" --port "$PORT" --skip-initialize
+  fi
 else
   "$SCRIPT_DIR/init-instance.sh" "$VARIANT" --port "$PORT"
 fi

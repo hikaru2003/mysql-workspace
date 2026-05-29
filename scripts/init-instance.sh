@@ -54,10 +54,12 @@ usage() {
 
 VARIANT=""
 PORT=3307
+SKIP_INITIALIZE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port)    PORT="$2"; shift 2 ;;
+    --port)             PORT="$2"; shift 2 ;;
+    --skip-initialize)  SKIP_INITIALIZE=true; shift ;;
     -h|--help) usage ;;
     -*)        echo "Unknown option: $1"; usage ;;
     *)
@@ -141,11 +143,15 @@ EOF
 echo "--- Created: $INSTALL_DIR/etc/my.cnf"
 
 # --- Initialize data directory ---------------------------------------------
-echo "--- Running mysqld --initialize-insecure (no root password)"
-"$MYSQLD" \
-  --defaults-file="$INSTALL_DIR/etc/my.cnf" \
-  --initialize-insecure \
-  --user="$(whoami)"
+if $SKIP_INITIALIZE; then
+  echo "--- Skipping mysqld --initialize-insecure (--skip-initialize)"
+else
+  echo "--- Running mysqld --initialize-insecure (no root password)"
+  "$MYSQLD" \
+    --defaults-file="$INSTALL_DIR/etc/my.cnf" \
+    --initialize-insecure \
+    --user="$(whoami)"
+fi
 
 echo ""
 echo "================================================================"
