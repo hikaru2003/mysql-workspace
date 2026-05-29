@@ -227,7 +227,36 @@ mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
            SET GLOBAL innodb_spin_wait_delay=6;
            SET GLOBAL innodb_sync_spin_loops=30;"
 
+# --- summary 生成 -----------------------------------------------------------
+SUMMARY_FILE="$RESULT_DIR/summary.tsv"
+printf "server\tvariant\tthreads\tmultiplier\truns\ttps_avg\ttps_stddev\tlat_avg_ms\tlat_p95_ms\n" \
+  > "$SUMMARY_FILE"
+awk -F'\t' '
+  NR==1 { next }
+  {
+    key = $3 SUBSEP $4   # threads, multiplier
+    n[key]++
+    tps[key]  += $6;  tps2[key] += $6^2
+    lat[key]  += $7
+    p95[key]  += $8
+    srv[key]=$1; var[key]=$2; thr[key]=$3; mul[key]=$4
+  }
+  END {
+    for (key in n) {
+      cnt = n[key]
+      avg = tps[key] / cnt
+      sd  = (cnt > 1) ? sqrt(tps2[key]/cnt - avg^2) : 0
+      printf "%s\t%s\t%s\t%s\t%d\t%.2f\t%.2f\t%.2f\t%.2f\n",
+        srv[key], var[key], thr[key], mul[key],
+        cnt, avg, sd, lat[key]/cnt, p95[key]/cnt
+    }
+  }
+' "$METRICS_FILE" | sort -t$'\t' -k3,3n -k4,4n >> "$SUMMARY_FILE"
+
 echo ""
 echo "========================================"
-echo " 完了: $METRICS_FILE"
+echo " 完了"
+echo "  metrics : $METRICS_FILE"
+echo "  summary : $SUMMARY_FILE"
+echo "  raw     : $RAW_DIR/"
 echo "========================================"
