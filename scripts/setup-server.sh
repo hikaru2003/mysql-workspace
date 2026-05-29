@@ -184,14 +184,21 @@ if $DO_PREPARE; then
   echo ""
   echo "[5/5] Running sysbench prepare..."
   "$MYSQL" --socket="$SOCKET" -u root -e "CREATE DATABASE IF NOT EXISTS sbtest;" 2>/dev/null
-  taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
-    --mysql-socket="$SOCKET" \
-    --mysql-user=root \
-    --tables="$TABLES" \
-    --table-size="$TABLE_SIZE" \
-    --threads=4 \
-    prepare
-  echo "  Prepare done (tables=$TABLES, table_size=$TABLE_SIZE)."
+  TABLE_COUNT=$("$MYSQL" --socket="$SOCKET" -u root -sN \
+    -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='sbtest';" 2>/dev/null || echo 0)
+  if [[ "$TABLE_COUNT" -ge "$TABLES" ]]; then
+    echo "  Tables already exist ($TABLE_COUNT >= $TABLES). Skipping prepare."
+  else
+    taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
+      --mysql-socket="$SOCKET" \
+      --mysql-user=root \
+      --mysql-db=sbtest \
+      --tables="$TABLES" \
+      --table-size="$TABLE_SIZE" \
+      --threads=4 \
+      prepare
+    echo "  Prepare done (tables=$TABLES, table_size=$TABLE_SIZE)."
+  fi
 else
   echo ""
   echo "[5/5] Skipping sysbench prepare (--prepare not specified)."
