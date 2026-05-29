@@ -113,6 +113,9 @@ innodb_thread_concurrency         = 0
 sync_binlog                       = 0
 innodb_flush_log_at_trx_commit    = 2
 
+# NFS 等 O_DIRECT 非対応ファイルシステム向け（CloudLab など）
+innodb_flush_method               = fsync
+
 # Performance Schema — instrument sync objects for spinlock analysis
 performance_schema                                    = ON
 performance_schema_instrument                         = 'wait/synch/%=ON'
