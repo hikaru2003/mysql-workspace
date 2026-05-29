@@ -6,10 +6,13 @@
 #   innodb_spin_wait_pause_multiplier のみを変化させ、TPS への影響を測定する。
 #   delay=6・spin_loops=30 は固定（simple_mysql 実験との対応を保つため）。
 #
-#   実行順序: 全 multiplier を 1 周するのを N 回繰り返す（ラウンドロビン）。
-#     round1: m=0 → m=10 → m=25 → ...
-#     round2: m=0 → m=10 → m=25 → ...
-#   これにより「後に実行するほどバッファプールが温まって有利」というバイアスを排除する。
+#   実行順序: 全 multiplier を 1 周するのを (1 + N) 回繰り返す（ラウンドロビン）。
+#     round1: m=0 → m=10 → ... → m=500  ← warmup（記録しない）
+#     round2: m=0 → m=10 → ... → m=500  ← 本番（記録）
+#     ...
+#     round6: m=0 → m=10 → ... → m=500  ← 本番（記録）
+#   round1 を warmup にすることでバッファプールを全 multiplier で均等に温め、
+#   後続の計測バイアスを排除する。
 #
 # 結果ディレクトリ構成:
 #   experiments/results/<variant>/<hostname>/multiplier_experiment/
@@ -25,7 +28,6 @@
 #   --sysbench-cores <range> sysbench の taskset コア指定（デフォルト: 16-19）
 #   --runs         N        ラウンド数（デフォルト: 5）
 #   --time         T        1 run の秒数（デフォルト: 60）
-#   --warmup-time  T        warmup 1 run の秒数（デフォルト: 30）
 #   --tables       N        sysbench テーブル数（デフォルト: 8）
 #   --table-size   N        sysbench テーブル行数（デフォルト: 100000）
 #   --result-dir   DIR      結果保存先ルートディレクトリ
@@ -38,6 +40,7 @@
 #     --threads 4,8,16,32,64 \
 #     --mysqld-cores 0-15 --sysbench-cores 16-19 \
 #     --runs 5 --time 60
+#   → 合計 6周（round1=warmup, round2〜6=本番計測）
 
 set -euo pipefail
 
@@ -55,7 +58,6 @@ MYSQLD_CORES="0-15"
 SYSBENCH_CORES="16-19"
 RUNS=5
 TIME=60
-WARMUP_TIME=30
 TABLES=8
 TABLE_SIZE=100000
 SERVER=""
@@ -69,7 +71,6 @@ while [[ $# -gt 0 ]]; do
     --sysbench-cores) SYSBENCH_CORES="$2"; shift 2 ;;
     --runs)           RUNS="$2";           shift 2 ;;
     --time)           TIME="$2";           shift 2 ;;
-    --warmup-time)    WARMUP_TIME="$2";    shift 2 ;;
     --tables)         TABLES="$2";         shift 2 ;;
     --table-size)     TABLE_SIZE="$2";     shift 2 ;;
     --server)         SERVER="$2";         shift 2 ;;
@@ -187,17 +188,15 @@ for THREAD in "${THREAD_LIST[@]}"; do
       --threads="$THREAD" prepare
   fi
 
-  # --- 初回 warmup（スレッド数変更後のバッファプール温め）---
-  echo "[warmup] initial warmup (${WARMUP_TIME}s, m=50)..."
-  mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
-             SET GLOBAL innodb_spin_wait_delay=6;
-             SET GLOBAL innodb_sync_spin_loops=30;"
-  run_sysbench "$THREAD" "$WARMUP_TIME" /dev/null
-
-  # --- ラウンドロビン: round × multiplier ---
-  for ((ROUND=1; ROUND<=RUNS; ROUND++)); do
+  # --- ラウンドロビン: round1=warmup, round2..RUNS+1=本番 ---
+  TOTAL_ROUNDS=$((RUNS + 1))
+  for ((ROUND=1; ROUND<=TOTAL_ROUNDS; ROUND++)); do
     echo ""
-    echo "  -- round $ROUND / $RUNS --"
+    if [[ "$ROUND" -eq 1 ]]; then
+      echo "  -- round $ROUND / $TOTAL_ROUNDS (warmup) --"
+    else
+      echo "  -- round $ROUND / $TOTAL_ROUNDS --"
+    fi
 
     for M in "${MULTIPLIER_LIST[@]}"; do
       # multiplier 設定（delay・spin_loops は固定）
@@ -206,27 +205,35 @@ for THREAD in "${THREAD_LIST[@]}"; do
                  SET GLOBAL innodb_sync_spin_loops=30;"
 
       ACTUAL_M=$(mysql_set "SELECT @@innodb_spin_wait_pause_multiplier;")
-      echo -n "  m=$ACTUAL_M threads=$THREAD ... "
 
-      # 本番 run（生データを保存）
-      RAW_FILE="$RAW_DIR/t${THREAD}_m${ACTUAL_M}_r${ROUND}.txt"
-      run_sysbench "$THREAD" "$TIME" "$RAW_FILE"
+      if [[ "$ROUND" -eq 1 ]]; then
+        # warmup round: 記録しない
+        echo -n "  [warmup] m=$ACTUAL_M threads=$THREAD ... "
+        run_sysbench "$THREAD" "$TIME" /dev/null
+        echo "done"
+      else
+        # 本番 round: 記録する
+        MEASURE_ROUND=$((ROUND - 1))
+        echo -n "  m=$ACTUAL_M threads=$THREAD ... "
+        RAW_FILE="$RAW_DIR/t${THREAD}_m${ACTUAL_M}_r${MEASURE_ROUND}.txt"
+        run_sysbench "$THREAD" "$TIME" "$RAW_FILE"
 
-      TPS=$(extract_tps     "$RAW_FILE")
-      LAT_AVG=$(extract_lat_avg "$RAW_FILE")
-      LAT_P95=$(extract_lat_p95 "$RAW_FILE")
+        TPS=$(extract_tps     "$RAW_FILE")
+        LAT_AVG=$(extract_lat_avg "$RAW_FILE")
+        LAT_P95=$(extract_lat_p95 "$RAW_FILE")
 
-      if [[ -z "$TPS" || -z "$LAT_AVG" ]]; then
-        echo "ERROR: メトリクス抽出失敗。確認: $RAW_FILE" >&2
-        exit 1
+        if [[ -z "$TPS" || -z "$LAT_AVG" ]]; then
+          echo "ERROR: メトリクス抽出失敗。確認: $RAW_FILE" >&2
+          exit 1
+        fi
+
+        printf "TPS=%-8s lat_avg=%-6s lat_p95=%s\n" "$TPS" "${LAT_AVG}ms" "${LAT_P95}ms"
+
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+          "$SERVER" "$VARIANT" "$THREAD" "$ACTUAL_M" "$MEASURE_ROUND" \
+          "$TPS" "$LAT_AVG" "$LAT_P95" \
+          >> "$METRICS_FILE"
       fi
-
-      printf "TPS=%-8s lat_avg=%-6s lat_p95=%s\n" "$TPS" "${LAT_AVG}ms" "${LAT_P95}ms"
-
-      # TSV に記録
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-        "$SERVER" "$VARIANT" "$THREAD" "$ACTUAL_M" "$ROUND" "$TPS" "$LAT_AVG" "$LAT_P95" \
-        >> "$METRICS_FILE"
     done
   done
 done
@@ -248,9 +255,8 @@ mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
   echo "# patch_file      : $PATCH_FILE"
   echo "# multipliers     : $MULTIPLIERS"
   echo "# threads         : $THREADS"
-  echo "# rounds          : $RUNS"
+  echo "# rounds          : $RUNS (+ 1 warmup round)"
   echo "# time_per_run    : ${TIME}s"
-  echo "# warmup_time     : ${WARMUP_TIME}s"
   echo "# tables          : $TABLES"
   echo "# table_size      : $TABLE_SIZE"
   echo "# mysqld_cores    : $MYSQLD_CORES"
