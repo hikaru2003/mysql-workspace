@@ -168,6 +168,7 @@ fi
 if $DO_PREPARE; then
   echo ""
   echo "[5/5] Running sysbench prepare..."
+  "$MYSQL" --socket="$SOCKET" -u root -e "CREATE DATABASE IF NOT EXISTS sbtest;" 2>/dev/null
   taskset -c "$SYSBENCH_CORES" "$SYSBENCH" oltp_read_write \
     --mysql-socket="$SOCKET" \
     --mysql-user=root \
