@@ -245,7 +245,6 @@ mysql_set "SET GLOBAL innodb_spin_wait_pause_multiplier=50;
 
 # --- summary.txt 生成（bench.sh フォーマットに準拠）-----------------------
 {
-  local SRC_COMMIT PATCH_FILE
   SRC_COMMIT="$(grep '^src_commit' "$INSTALL_DIR/BUILD-INFO.txt" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo unknown)"
   PATCH_FILE="$(grep '^patch_file' "$INSTALL_DIR/BUILD-INFO.txt" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo unknown)"
   echo "# server          : $SERVER"
